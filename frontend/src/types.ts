@@ -80,4 +80,18 @@ export interface FinanceSummary {
   paymentCount: number
 }
 
+export interface FinanceReportRow {
+  date: string
+  paymentCount: number
+  revenue: number
+}
+
+export interface Page<T> {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+}
+
 

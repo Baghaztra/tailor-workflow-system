@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import BaseModal from '@/components/BaseModal.vue'
 import { errorMessage } from '@/services/api'
 import { createWorker, listWorkers, updateWorker } from '@/services/workers'
@@ -10,6 +10,12 @@ import type { Specialization, Worker } from '@/types'
 const workers = ref<Worker[]>([])
 const loading = ref(true)
 const error = ref('')
+const search = ref('')
+const page = ref(0)
+const size = 10
+const total = ref(0)
+const totalPages = ref(0)
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const showModal = ref(false)
 const editing = ref<Worker | null>(null)
@@ -26,7 +32,18 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    workers.value = await listWorkers()
+    const result = await listWorkers({
+      search: search.value.trim() || undefined,
+      page: page.value,
+      size,
+    })
+    workers.value = result.content
+    total.value = result.totalElements
+    totalPages.value = result.totalPages
+    if (!result.content.length && page.value > 0) {
+      page.value--
+      await load()
+    }
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -66,6 +83,7 @@ async function save() {
       await updateWorker(editing.value.id, body)
     } else {
       await createWorker(body)
+      page.value = 0
     }
     showModal.value = false
     await load()
@@ -89,6 +107,13 @@ async function toggleActive(worker: Worker) {
   }
 }
 
+watch(search, () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    page.value = 0
+    load()
+  }, 300)
+})
 onMounted(load)
 </script>
 
@@ -104,6 +129,15 @@ onMounted(load)
   <div v-if="error" class="alert alert-error">{{ error }}</div>
 
   <div class="card">
+    <div class="toolbar">
+      <div class="filters">
+        <div class="field">
+          <label for="worker-search">Search</label>
+          <input id="worker-search" v-model="search" placeholder="Worker name" />
+        </div>
+      </div>
+    </div>
+
     <p v-if="loading" class="empty">Loading...</p>
     <table v-else class="table">
       <thead>
@@ -139,6 +173,23 @@ onMounted(load)
         </tr>
       </tbody>
     </table>
+
+    <div class="pager">
+      <span>{{ total }} workers</span>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" :disabled="page === 0" @click="page--; load()">
+          Previous
+        </button>
+        <span>Page {{ page + 1 }} / {{ totalPages || 1 }}</span>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="page >= totalPages - 1"
+          @click="page++; load()"
+        >
+          Next
+        </button>
+      </div>
+    </div>
   </div>
 
   <BaseModal

@@ -16,7 +16,7 @@ import {
 import { listWorkers } from '@/services/workers'
 import { formatDate, formatPrice } from '@/utils/format'
 import { PAYMENT_METHODS } from '@/types'
-import type { Order, OrderLog, PaymentMethod, Worker } from '@/types'
+import type { Order, OrderLog, OrderStage, PaymentMethod, Worker } from '@/types'
 
 const route = useRoute()
 const orderId = Number(route.params.id)
@@ -40,11 +40,33 @@ const payForm = reactive({
 
 const activeWorkers = computed(() => workers.value.filter((worker) => worker.active))
 
+const nextStage = computed<OrderStage | null>(() => {
+  for (let index = logs.value.length - 1; index >= 0; index--) {
+    const log = logs.value[index]
+    if (!log || log.action !== 'COMPLETED' || !log.stage) {
+      continue
+    }
+    if (log.stage === 'CUTTING') {
+      return 'SEWING'
+    }
+    if (log.stage === 'SEWING') {
+      return 'FINISHING'
+    }
+    return null
+  }
+  return 'CUTTING'
+})
+
+const assignableWorkers = computed(() =>
+  activeWorkers.value.filter((worker) => worker.specialization === nextStage.value),
+)
+
 const canAssign = computed(() => {
   const current = order.value
   return (
     current !== null &&
     current.stage === null &&
+    nextStage.value !== null &&
     (current.status === 'CREATED' || current.status === 'IN_PROGRESS')
   )
 })
@@ -88,14 +110,14 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [orderData, logData, workerData] = await Promise.all([
+    const [orderData, logData, workerPage] = await Promise.all([
       getOrder(orderId),
       listOrderLogs(orderId),
-      listWorkers(),
+      listWorkers({ active: true, size: 100 }),
     ])
     order.value = orderData
     logs.value = logData
-    workers.value = workerData
+    workers.value = workerPage.content
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -252,13 +274,15 @@ onMounted(load)
           <label for="assign-worker">Worker</label>
           <select id="assign-worker" v-model="selectedWorkerId" required>
             <option value="" disabled>Select a worker</option>
-            <option v-for="worker in activeWorkers" :key="worker.id" :value="worker.id">
+            <option v-for="worker in assignableWorkers" :key="worker.id" :value="worker.id">
               {{ worker.name }} ({{ worker.specialization }})
             </option>
           </select>
         </div>
 
-        <p v-if="!activeWorkers.length" class="empty">No active workers available.</p>
+        <p v-if="!assignableWorkers.length" class="empty">
+          No active {{ nextStage }} worker available.
+        </p>
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" @click="showAssign = false">Cancel</button>

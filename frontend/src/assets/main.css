@@ -41,6 +41,8 @@ h2 {
   background: #111827;
   color: #e5e7eb;
   padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand {
@@ -65,6 +67,38 @@ h2 {
 .nav-link.active {
   background: var(--primary);
   color: #ffffff;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid #374151;
+}
+
+.sidebar-user {
+  color: #9ca3af;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.sidebar-footer .btn {
+  width: 100%;
+  background: #1f2937;
+  color: #e5e7eb;
+  border-color: #374151;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
 }
 
 .content {
@@ -303,6 +337,23 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.pager .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .modal-backdrop {

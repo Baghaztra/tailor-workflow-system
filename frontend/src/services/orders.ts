@@ -1,10 +1,15 @@
 import { api } from './api'
-import type { Order, OrderLog, OrderStatus, PaymentMethod, SaveOrder } from '@/types'
+import type { Order, OrderLog, OrderStatus, Page, PaymentMethod, SaveOrder } from '@/types'
 
-export const listOrders = (status?: OrderStatus) =>
-  api
-    .get<Order[]>('/api/orders', { params: status ? { status } : {} })
-    .then((response) => response.data)
+export interface OrderFilter {
+  status?: OrderStatus
+  search?: string
+  page?: number
+  size?: number
+}
+
+export const listOrders = (params: OrderFilter = {}) =>
+  api.get<Page<Order>>('/api/orders', { params }).then((response) => response.data)
 
 export const getOrder = (id: number) =>
   api.get<Order>(`/api/orders/${id}`).then((response) => response.data)

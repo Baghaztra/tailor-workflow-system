@@ -1,5 +1,6 @@
 package com.baghaztra.tailorworkflow.controller;
 
+import com.baghaztra.tailorworkflow.dto.PageResponse;
 import com.baghaztra.tailorworkflow.entity.Worker;
 import com.baghaztra.tailorworkflow.service.WorkerService;
 import jakarta.validation.Valid;
@@ -18,7 +19,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/workers")
@@ -31,8 +31,12 @@ public class WorkerController {
     }
 
     @GetMapping
-    public List<WorkerResponse> list(@RequestParam(required = false) Boolean active) {
-        return workers.list(active).stream().map(WorkerResponse::from).toList();
+    public PageResponse<WorkerResponse> list(
+            @RequestParam(required = false) Boolean active,
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return PageResponse.from(workers.list(active, search, page, size), WorkerResponse::from);
     }
 
     @GetMapping("/{id}")

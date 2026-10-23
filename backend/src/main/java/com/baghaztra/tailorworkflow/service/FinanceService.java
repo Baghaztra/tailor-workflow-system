@@ -9,7 +9,10 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 @Service
 public class FinanceService {
@@ -57,5 +60,47 @@ public class FinanceService {
             return payments.findByPaidAtLessThanOrderByPaidAtDesc(end);
         }
         return payments.findAllByOrderByPaidAtDesc();
+    }
+
+    public record DailyReport(LocalDate date, long paymentCount, BigDecimal revenue) {
+    }
+
+    @Transactional(readOnly = true)
+    public List<DailyReport> report(LocalDate from, LocalDate to) {
+        Map<LocalDate, DailyReport> rows = new TreeMap<>();
+        for (Payment payment : list(from, to)) {
+            LocalDate date = payment.getPaidAt().atZone(ZONE).toLocalDate();
+            rows.merge(
+                    date,
+                    new DailyReport(date, 1, payment.getAmount()),
+                    (left, right) -> new DailyReport(
+                            date,
+                            left.paymentCount() + right.paymentCount(),
+                            left.revenue().add(right.revenue())));
+        }
+        return new ArrayList<>(rows.values());
+    }
+
+    @Transactional(readOnly = true)
+    public String exportCsv(LocalDate from, LocalDate to) {
+        StringBuilder csv = new StringBuilder("order_id,customer,amount,method,paid_at\n");
+        for (Payment payment : list(from, to)) {
+            csv.append(payment.getOrder().getId()).append(',')
+                    .append(escapeCsv(payment.getOrder().getCustomerName())).append(',')
+                    .append(payment.getAmount().toPlainString()).append(',')
+                    .append(payment.getMethod()).append(',')
+                    .append(payment.getPaidAt()).append('\n');
+        }
+        return csv.toString();
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) {
+            return "";
+        }
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 }

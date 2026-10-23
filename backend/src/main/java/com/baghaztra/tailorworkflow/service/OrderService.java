@@ -8,6 +8,11 @@ import com.baghaztra.tailorworkflow.repository.OrderLogRepository;
 import com.baghaztra.tailorworkflow.repository.OrderRepository;
 import com.baghaztra.tailorworkflow.repository.PaymentRepository;
 import com.baghaztra.tailorworkflow.repository.WorkerRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,8 +39,21 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
-    public List<Order> list(Order.Status status) {
-        return status == null ? orders.findAll() : orders.findByStatus(status);
+    public Page<Order> list(Order.Status status, String search, int page, int size) {
+        Specification<Order> spec = (root, query, cb) -> cb.conjunction();
+        if (status != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), status));
+        }
+        if (search != null && !search.isBlank()) {
+            String pattern = "%" + search.trim().toLowerCase() + "%";
+            spec = spec.and((root, query, cb) -> cb.like(cb.lower(root.get("customerName")), pattern));
+        }
+
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), 100),
+                Sort.by(Sort.Direction.DESC, "id"));
+        return orders.findAll(spec, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -76,6 +94,14 @@ public class OrderService {
         }
 
         Order.Stage stage = Order.Stage.valueOf(worker.getSpecialization().name());
+        Order.Stage expected = nextStage(id);
+        if (expected == null) {
+            throw conflict(order, "all stages are complete");
+        }
+        if (stage != expected) {
+            throw conflict(order, "next stage is " + expected);
+        }
+
         order.setStage(stage);
         order.setStatus(Order.Status.IN_PROGRESS);
         orders.save(order);
@@ -89,6 +115,12 @@ public class OrderService {
         requireStatus(order, Order.Status.IN_PROGRESS);
         if (order.getStage() == null) {
             throw conflict(order, "no stage has been assigned");
+        }
+        boolean alreadyStarted = logs.findTopByOrderIdAndStageOrderByCreatedAtDesc(id, order.getStage())
+                .map(log -> log.getAction() == OrderLog.Action.STARTED)
+                .orElse(false);
+        if (alreadyStarted) {
+            throw conflict(order, "stage " + order.getStage() + " has already started");
         }
         log(order, OrderLog.Action.STARTED, order.getStage(), null, null);
         return order;
@@ -170,6 +202,23 @@ public class OrderService {
     private Order find(Long id) {
         return orders.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order " + id + " not found"));
+    }
+
+    private Order.Stage nextStage(Long orderId) {
+        Order.Stage last = logs.findTopByOrderIdAndActionOrderByCreatedAtDesc(orderId, OrderLog.Action.COMPLETED)
+                .map(OrderLog::getStage)
+                .orElse(null);
+
+        if (last == null) {
+            return Order.Stage.CUTTING;
+        }
+        if (last == Order.Stage.CUTTING) {
+            return Order.Stage.SEWING;
+        }
+        if (last == Order.Stage.SEWING) {
+            return Order.Stage.FINISHING;
+        }
+        return null;
     }
 
     private void requireStatus(Order order, Order.Status... allowed) {

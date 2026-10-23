@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { currentAdmin, logout } from '@/services/auth'
 
 const route = useRoute()
+const router = useRouter()
 
 const menu = [
   { name: 'Dashboard', path: '/' },
@@ -12,6 +14,14 @@ const menu = [
 
 const isActive = (path: string) =>
   path === '/' ? route.path === '/' : route.path.startsWith(path)
+
+async function signOut() {
+  try {
+    await logout()
+  } finally {
+    await router.push({ name: 'login' })
+  }
+}
 </script>
 
 <template>
@@ -28,5 +38,10 @@ const isActive = (path: string) =>
         {{ item.name }}
       </RouterLink>
     </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-user">{{ currentAdmin?.username }}</div>
+      <button class="btn" @click="signOut">Sign out</button>
+    </div>
   </aside>
 </template>

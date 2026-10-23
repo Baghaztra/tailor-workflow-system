@@ -1,10 +1,15 @@
 import { api } from './api'
-import type { SaveWorker, Worker } from '@/types'
+import type { Page, SaveWorker, Worker } from '@/types'
 
-export const listWorkers = (active?: boolean) =>
-  api
-    .get<Worker[]>('/api/workers', { params: active === undefined ? {} : { active } })
-    .then((response) => response.data)
+export interface WorkerFilter {
+  active?: boolean
+  search?: string
+  page?: number
+  size?: number
+}
+
+export const listWorkers = (params: WorkerFilter = {}) =>
+  api.get<Page<Worker>>('/api/workers', { params }).then((response) => response.data)
 
 export const createWorker = (body: SaveWorker) =>
   api.post<Worker>('/api/workers', body).then((response) => response.data)

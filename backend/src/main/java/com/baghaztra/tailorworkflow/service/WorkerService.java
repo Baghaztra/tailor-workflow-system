@@ -2,12 +2,15 @@ package com.baghaztra.tailorworkflow.service;
 
 import com.baghaztra.tailorworkflow.entity.Worker;
 import com.baghaztra.tailorworkflow.repository.WorkerRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-
-import java.util.List;
 
 @Service
 public class WorkerService {
@@ -19,8 +22,21 @@ public class WorkerService {
     }
 
     @Transactional(readOnly = true)
-    public List<Worker> list(Boolean active) {
-        return active == null ? workers.findAll() : workers.findByActive(active);
+    public Page<Worker> list(Boolean active, String search, int page, int size) {
+        Specification<Worker> spec = (root, query, cb) -> cb.conjunction();
+        if (active != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("active"), active));
+        }
+        if (search != null && !search.isBlank()) {
+            String pattern = "%" + search.trim().toLowerCase() + "%";
+            spec = spec.and((root, query, cb) -> cb.like(cb.lower(root.get("name")), pattern));
+        }
+
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), 100),
+                Sort.by(Sort.Direction.ASC, "name"));
+        return workers.findAll(spec, pageable);
     }
 
     @Transactional(readOnly = true)

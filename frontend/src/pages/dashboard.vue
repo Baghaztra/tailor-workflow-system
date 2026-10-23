@@ -29,13 +29,13 @@ const recentOrders = computed(() => [...orders.value].sort((a, b) => b.id - a.id
 
 onMounted(async () => {
   try {
-    const [orderList, workerList, financeData] = await Promise.all([
-      listOrders(),
-      listWorkers(),
+    const [orderPage, workerPage, financeData] = await Promise.all([
+      listOrders({ size: 100 }),
+      listWorkers({ size: 100 }),
       getFinanceSummary(),
     ])
-    orders.value = orderList
-    workers.value = workerList
+    orders.value = orderPage.content
+    workers.value = workerPage.content
     finance.value = financeData
   } catch (e) {
     error.value = errorMessage(e)

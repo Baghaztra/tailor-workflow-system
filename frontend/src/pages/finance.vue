@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { errorMessage } from '@/services/api'
-import { getFinanceSummary, listPayments } from '@/services/finance'
+import { exportPayments, getFinanceReport, getFinanceSummary, listPayments } from '@/services/finance'
 import { formatDate, formatPrice } from '@/utils/format'
-import type { FinanceSummary, Payment } from '@/types'
+import type { FinanceReportRow, FinanceSummary, Payment } from '@/types'
 
 const summary = ref<FinanceSummary | null>(null)
 const payments = ref<Payment[]>([])
+const report = ref<FinanceReportRow[]>([])
 const loading = ref(true)
+const exporting = ref(false)
 const error = ref('')
 
 const from = ref('')
@@ -17,16 +19,30 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [summaryData, paymentData] = await Promise.all([
+    const [summaryData, paymentData, reportData] = await Promise.all([
       getFinanceSummary(),
       listPayments({ from: from.value || undefined, to: to.value || undefined }),
+      getFinanceReport({ from: from.value || undefined, to: to.value || undefined }),
     ])
     summary.value = summaryData
     payments.value = paymentData
+    report.value = reportData
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function download() {
+  exporting.value = true
+  error.value = ''
+  try {
+    await exportPayments({ from: from.value || undefined, to: to.value || undefined })
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -77,6 +93,9 @@ onMounted(load)
             <label for="payment-to">To</label>
             <input id="payment-to" v-model="to" type="date" />
           </div>
+          <button class="btn btn-ghost" :disabled="exporting" @click="download">
+            {{ exporting ? 'Exporting...' : 'Export CSV' }}
+          </button>
         </div>
       </div>
 
@@ -102,6 +121,32 @@ onMounted(load)
           </tr>
           <tr v-if="!payments.length">
             <td colspan="5" class="empty">No payments found.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <h2>Daily report</h2>
+      </div>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Payments</th>
+            <th>Revenue</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in report" :key="row.date">
+            <td>{{ row.date }}</td>
+            <td>{{ row.paymentCount }}</td>
+            <td>{{ formatPrice(row.revenue) }}</td>
+          </tr>
+          <tr v-if="!report.length">
+            <td colspan="3" class="empty">No revenue in this period.</td>
           </tr>
         </tbody>
       </table>

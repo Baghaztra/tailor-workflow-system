@@ -11,6 +11,12 @@ const orders = ref<Order[]>([])
 const loading = ref(true)
 const error = ref('')
 const statusFilter = ref<'' | OrderStatus>('')
+const search = ref('')
+const page = ref(0)
+const size = 10
+const total = ref(0)
+const totalPages = ref(0)
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const showModal = ref(false)
 const editing = ref<Order | null>(null)
@@ -26,7 +32,19 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    orders.value = await listOrders(statusFilter.value || undefined)
+    const result = await listOrders({
+      status: statusFilter.value || undefined,
+      search: search.value.trim() || undefined,
+      page: page.value,
+      size,
+    })
+    orders.value = result.content
+    total.value = result.totalElements
+    totalPages.value = result.totalPages
+    if (!result.content.length && page.value > 0) {
+      page.value--
+      await load()
+    }
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -64,6 +82,7 @@ async function save() {
       await updateOrder(editing.value.id, body)
     } else {
       await createOrder(body)
+      page.value = 0
     }
     showModal.value = false
     await load()
@@ -87,7 +106,17 @@ async function cancelOrder(order: Order) {
   }
 }
 
-watch(statusFilter, load)
+watch(statusFilter, () => {
+  page.value = 0
+  load()
+})
+watch(search, () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    page.value = 0
+    load()
+  }, 300)
+})
 onMounted(load)
 </script>
 
@@ -104,12 +133,18 @@ onMounted(load)
 
   <div class="card">
     <div class="toolbar">
-      <div class="field">
-        <label for="status-filter">Status</label>
-        <select id="status-filter" v-model="statusFilter">
-          <option value="">All</option>
-          <option v-for="status in ORDER_STATUSES" :key="status" :value="status">{{ status }}</option>
-        </select>
+      <div class="filters">
+        <div class="field">
+          <label for="order-search">Search</label>
+          <input id="order-search" v-model="search" placeholder="Customer name" />
+        </div>
+        <div class="field">
+          <label for="status-filter">Status</label>
+          <select id="status-filter" v-model="statusFilter">
+            <option value="">All</option>
+            <option v-for="status in ORDER_STATUSES" :key="status" :value="status">{{ status }}</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -155,6 +190,23 @@ onMounted(load)
         </tr>
       </tbody>
     </table>
+
+    <div class="pager">
+      <span>{{ total }} orders</span>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" :disabled="page === 0" @click="page--; load()">
+          Previous
+        </button>
+        <span>Page {{ page + 1 }} / {{ totalPages || 1 }}</span>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="page >= totalPages - 1"
+          @click="page++; load()"
+        >
+          Next
+        </button>
+      </div>
+    </div>
   </div>
 
   <BaseModal

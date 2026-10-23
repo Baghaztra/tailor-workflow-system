@@ -1,5 +1,6 @@
 package com.baghaztra.tailorworkflow.controller;
 
+import com.baghaztra.tailorworkflow.dto.PageResponse;
 import com.baghaztra.tailorworkflow.entity.Order;
 import com.baghaztra.tailorworkflow.entity.Payment;
 import com.baghaztra.tailorworkflow.service.OrderService;
@@ -21,7 +22,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -34,8 +34,12 @@ public class OrderController {
     }
 
     @GetMapping
-    public List<OrderResponse> list(@RequestParam(required = false) Order.Status status) {
-        return orders.list(status).stream().map(OrderResponse::from).toList();
+    public PageResponse<OrderResponse> list(
+            @RequestParam(required = false) Order.Status status,
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return PageResponse.from(orders.list(status, search, page, size), OrderResponse::from);
     }
 
     @GetMapping("/{id}")
