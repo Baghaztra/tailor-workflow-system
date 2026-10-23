@@ -19,38 +19,43 @@ import java.util.List;
 public class JwtCookieFilter extends OncePerRequestFilter {
 
     private final JwtService jwt;
+    private final AuthSessionStore sessions;
 
-    public JwtCookieFilter(JwtService jwt) {
+    public JwtCookieFilter(JwtService jwt, AuthSessionStore sessions) {
         this.jwt = jwt;
+        this.sessions = sessions;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
-            String token = readToken(request);
+            String token = readToken(request, AuthCookie.ACCESS_NAME);
             if (token != null) {
-                jwt.verify(token).ifPresent(username -> {
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(
-                                    username,
-                                    null,
-                                    List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
-                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-                });
+                jwt.verifyAccess(token)
+                        .filter(access -> sessions.isActive(access.sessionId()))
+                        .ifPresent(access -> {
+                            UsernamePasswordAuthenticationToken authentication =
+                                    new UsernamePasswordAuthenticationToken(
+                                            access.username(),
+                                            null,
+                                            List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+                            authentication.setDetails(
+                                    new WebAuthenticationDetailsSource().buildDetails(request));
+                            SecurityContextHolder.getContext().setAuthentication(authentication);
+                        });
             }
         }
         chain.doFilter(request, response);
     }
 
-    private String readToken(HttpServletRequest request) {
+    private String readToken(HttpServletRequest request, String name) {
         Cookie[] cookies = request.getCookies();
         if (cookies == null) {
             return null;
         }
         for (Cookie cookie : cookies) {
-            if (AuthCookie.NAME.equals(cookie.getName())) {
+            if (name.equals(cookie.getName())) {
                 return cookie.getValue();
             }
         }

@@ -86,6 +86,15 @@ export interface FinanceReportRow {
   revenue: number
 }
 
+export interface Dashboard {
+  activeOrders: number
+  pendingPickups: number
+  activeWorkers: number
+  totalOrders: number
+  monthRevenue: number
+  totalRevenue: number
+}
+
 export interface Page<T> {
   content: T[]
   page: number

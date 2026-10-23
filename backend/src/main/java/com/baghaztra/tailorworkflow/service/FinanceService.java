@@ -2,6 +2,10 @@ package com.baghaztra.tailorworkflow.service;
 
 import com.baghaztra.tailorworkflow.entity.Payment;
 import com.baghaztra.tailorworkflow.repository.PaymentRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,6 +64,27 @@ public class FinanceService {
             return payments.findByPaidAtLessThanOrderByPaidAtDesc(end);
         }
         return payments.findAllByOrderByPaidAtDesc();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Payment> page(LocalDate from, LocalDate to, int page, int size) {
+        Instant start = from == null ? null : from.atStartOfDay(ZONE).toInstant();
+        Instant end = to == null ? null : to.plusDays(1).atStartOfDay(ZONE).toInstant();
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), 100),
+                Sort.by(Sort.Direction.DESC, "paidAt"));
+
+        if (start != null && end != null) {
+            return payments.findByPaidAtGreaterThanEqualAndPaidAtLessThan(start, end, pageable);
+        }
+        if (start != null) {
+            return payments.findByPaidAtGreaterThanEqual(start, pageable);
+        }
+        if (end != null) {
+            return payments.findByPaidAtLessThan(end, pageable);
+        }
+        return payments.findAll(pageable);
     }
 
     public record DailyReport(LocalDate date, long paymentCount, BigDecimal revenue) {

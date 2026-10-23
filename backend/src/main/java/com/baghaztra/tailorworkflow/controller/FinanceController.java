@@ -1,5 +1,6 @@
 package com.baghaztra.tailorworkflow.controller;
 
+import com.baghaztra.tailorworkflow.dto.PageResponse;
 import com.baghaztra.tailorworkflow.entity.Payment;
 import com.baghaztra.tailorworkflow.service.FinanceService;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -34,10 +35,12 @@ public class FinanceController {
     }
 
     @GetMapping("/payments")
-    public List<PaymentResponse> payments(
+    public PageResponse<PaymentResponse> payments(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return finance.list(from, to).stream().map(PaymentResponse::from).toList();
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return PageResponse.from(finance.page(from, to, page, size), PaymentResponse::from);
     }
 
     @GetMapping("/finance/report")

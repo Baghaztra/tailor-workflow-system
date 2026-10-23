@@ -14,19 +14,32 @@ const error = ref('')
 
 const from = ref('')
 const to = ref('')
+const page = ref(0)
+const size = 10
+const total = ref(0)
+const totalPages = ref(0)
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [summaryData, paymentData, reportData] = await Promise.all([
+    const [summaryData, paymentPage, reportData] = await Promise.all([
       getFinanceSummary(),
-      listPayments({ from: from.value || undefined, to: to.value || undefined }),
+      listPayments({
+        from: from.value || undefined,
+        to: to.value || undefined,
+        page: page.value,
+        size,
+      }),
       getFinanceReport({ from: from.value || undefined, to: to.value || undefined }),
     ])
     summary.value = summaryData
-    payments.value = paymentData
-    report.value = reportData
+    payments.value = paymentPage.content
+    total.value = paymentPage.totalElements
+    totalPages.value = paymentPage.totalPages
+    if (!paymentPage.content.length && page.value > 0) {
+      page.value--
+    }
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -46,7 +59,14 @@ async function download() {
   }
 }
 
-watch([from, to], load)
+watch([from, to], () => {
+  if (page.value !== 0) {
+    page.value = 0
+  } else {
+    load()
+  }
+})
+watch(page, load)
 onMounted(load)
 </script>
 
@@ -124,6 +144,23 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
+
+      <div class="pager">
+        <span>{{ total }} payments</span>
+        <div class="actions">
+          <button class="btn btn-ghost btn-sm" :disabled="page === 0" @click="page--">
+            Previous
+          </button>
+          <span>Page {{ page + 1 }} / {{ totalPages || 1 }}</span>
+          <button
+            class="btn btn-ghost btn-sm"
+            :disabled="page >= totalPages - 1"
+            @click="page++"
+          >
+            Next
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="card">

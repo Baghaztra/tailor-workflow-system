@@ -1,42 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { errorMessage } from '@/services/api'
-import { getFinanceSummary } from '@/services/finance'
+import { getDashboard } from '@/services/dashboard'
 import { listOrders } from '@/services/orders'
-import { listWorkers } from '@/services/workers'
 import { formatDate, formatPrice } from '@/utils/format'
-import type { FinanceSummary, Order, Worker } from '@/types'
+import type { Dashboard, Order } from '@/types'
 
+const stats = ref<Dashboard | null>(null)
 const orders = ref<Order[]>([])
-const workers = ref<Worker[]>([])
-const finance = ref<FinanceSummary | null>(null)
 const loading = ref(true)
 const error = ref('')
 
-const activeOrders = computed(() =>
-  orders.value.filter(
-    (order) =>
-      order.status === 'CREATED' ||
-      order.status === 'IN_PROGRESS' ||
-      order.status === 'READY_FOR_PICKUP',
-  ),
-)
-const pendingPickups = computed(() =>
-  orders.value.filter((order) => order.status === 'READY_FOR_PICKUP'),
-)
-const activeWorkers = computed(() => workers.value.filter((worker) => worker.active))
-const recentOrders = computed(() => [...orders.value].sort((a, b) => b.id - a.id).slice(0, 5))
-
 onMounted(async () => {
   try {
-    const [orderPage, workerPage, financeData] = await Promise.all([
-      listOrders({ size: 100 }),
-      listWorkers({ size: 100 }),
-      getFinanceSummary(),
+    const [dashboardData, orderPage] = await Promise.all([
+      getDashboard(),
+      listOrders({ size: 5 }),
     ])
+    stats.value = dashboardData
     orders.value = orderPage.content
-    workers.value = workerPage.content
-    finance.value = financeData
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -60,27 +42,27 @@ onMounted(async () => {
     <div class="stat-grid">
       <div class="stat">
         <div class="stat-label">Active orders</div>
-        <div class="stat-value">{{ activeOrders.length }}</div>
+        <div class="stat-value">{{ stats?.activeOrders ?? 0 }}</div>
       </div>
       <div class="stat">
         <div class="stat-label">Pending pickups</div>
-        <div class="stat-value">{{ pendingPickups.length }}</div>
+        <div class="stat-value">{{ stats?.pendingPickups ?? 0 }}</div>
       </div>
       <div class="stat">
         <div class="stat-label">Active workers</div>
-        <div class="stat-value">{{ activeWorkers.length }}</div>
+        <div class="stat-value">{{ stats?.activeWorkers ?? 0 }}</div>
       </div>
       <div class="stat">
         <div class="stat-label">Total orders</div>
-        <div class="stat-value">{{ orders.length }}</div>
+        <div class="stat-value">{{ stats?.totalOrders ?? 0 }}</div>
       </div>
       <div class="stat">
         <div class="stat-label">Revenue this month</div>
-        <div class="stat-value">{{ formatPrice(finance?.monthRevenue ?? 0) }}</div>
+        <div class="stat-value">{{ formatPrice(stats?.monthRevenue ?? 0) }}</div>
       </div>
       <div class="stat">
         <div class="stat-label">Total revenue</div>
-        <div class="stat-value">{{ formatPrice(finance?.totalRevenue ?? 0) }}</div>
+        <div class="stat-value">{{ formatPrice(stats?.totalRevenue ?? 0) }}</div>
       </div>
     </div>
 
@@ -101,7 +83,7 @@ onMounted(async () => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="order in recentOrders" :key="order.id">
+          <tr v-for="order in orders" :key="order.id">
             <td><RouterLink :to="`/orders/${order.id}`">#{{ order.id }}</RouterLink></td>
             <td>{{ order.customerName }}</td>
             <td>
@@ -113,7 +95,7 @@ onMounted(async () => {
             <td>{{ formatPrice(order.totalPrice) }}</td>
             <td>{{ formatDate(order.updatedAt) }}</td>
           </tr>
-          <tr v-if="!recentOrders.length">
+          <tr v-if="!orders.length">
             <td colspan="6" class="empty">No orders yet.</td>
           </tr>
         </tbody>

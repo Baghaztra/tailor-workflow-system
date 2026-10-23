@@ -72,7 +72,7 @@ Instead of focusing on graphics or gameplay, this project focuses on modeling a 
 - Spring Data JPA
 - Spring Validation
 - Spring Security
-- JWT via `java-jwt` 4.4.0 (HttpOnly cookie)
+- JWT via `java-jwt` 4.4.0 (short-lived access cookie + refresh session)
 - Spring Boot Actuator (`/actuator/health`)
 - Springdoc OpenAPI 3.1.0 (Swagger UI)
 - PostgreSQL driver
@@ -163,8 +163,10 @@ Notes:
 - `server.port=8081` is set because port 8080 is used by another local application.
 - `ddl-auto=update` is enabled for development, so tables are created automatically. This will be replaced by Flyway migrations.
 - CORS for the frontend origin is set with `app.cors.allowed-origins` in `application.properties` (default `http://localhost:8082`), with credentials enabled for the auth cookie.
-- All `/api/**` endpoints except `/api/auth/login` require authentication. Swagger UI and the health endpoint stay public.
-- The JWT is stored in an `HttpOnly`, `SameSite=Lax` cookie named `tailor_token`; it is never exposed to JavaScript.
+- All `/api/**` endpoints except `/api/auth/login`, `/api/auth/refresh`, and `/api/auth/logout` require authentication. Swagger UI and the health endpoint stay public.
+- `tailor_token` is a 15-minute access JWT in an `HttpOnly`, `SameSite=Lax` cookie. `tailor_refresh` is an 8-hour refresh token scoped to `/api/auth`; both are never exposed to JavaScript.
+- Logout revokes the server-side session immediately. Sessions live in memory, so a backend restart signs everyone out.
+- Login is rate-limited to 5 failed attempts per 15 minutes per IP and username (`429` + `Retry-After`). The counter is also in memory.
 - `.env` is ignored by git; only `.env.example` is committed.
 - CSRF protection is disabled and the auth cookie uses `SameSite=Lax`. For a cross-site deployment, enable CSRF protection and set `AUTH_COOKIE_SECURE=true` behind HTTPS.
 
@@ -202,17 +204,18 @@ Other scripts: `bun run build` (type-check and production build), `bun run type-
 
 Base URL: `http://localhost:8081`
 
-All endpoints below require the `tailor_token` cookie, except `/api/auth/login`.
+All endpoints below require the access cookie, except `/api/auth/login`, `/api/auth/refresh`, and `/api/auth/logout`.
 
 ## Authentication
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/auth/login` | `{ "username": "...", "password": "..." }`; sets the cookie |
-| POST | `/api/auth/logout` | Clears the cookie |
+| POST | `/api/auth/login` | `{ "username": "...", "password": "..." }`; sets access and refresh cookies |
+| POST | `/api/auth/refresh` | Issues a new 15-minute access cookie using the refresh cookie |
+| POST | `/api/auth/logout` | Revokes the session and clears both cookies |
 | GET | `/api/auth/me` | Returns the signed-in admin |
 
-The cookie is `HttpOnly`, `SameSite=Lax`, valid for 8 hours. `401` means the session is missing or expired.
+Both cookies are `HttpOnly` and `SameSite=Lax`. Access lasts 15 minutes; the refresh session lasts at most 8 hours. `401` means the session is missing, expired, or revoked. Five failed logins per IP and username within 15 minutes return `429` with `Retry-After`.
 
 ## Workers
 
@@ -314,6 +317,12 @@ Payment request:
 `method`: `CASH`, `TRANSFER`. One payment per order, `amount` at least `0.01`. A second payment returns `409 Conflict`.
 If `totalPrice` is set, the frontend pre-fills the amount.
 
+## Dashboard
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/dashboard` | Server-side counts for active orders, pending pickups, active workers, total orders, and revenue |
+
 ## Finance
 
 | Method | Path | Description |
@@ -321,7 +330,7 @@ If `totalPrice` is set, the frontend pre-fills the amount.
 | GET | `/api/finance/summary` | Total, monthly, and daily revenue plus payment count |
 | GET | `/api/finance/report?from=2026-10-01&to=2026-10-31` | Daily revenue rows, oldest first |
 | GET | `/api/finance/export?from=2026-10-01&to=2026-10-31` | Payment CSV download |
-| GET | `/api/payments?from=2026-10-01&to=2026-10-31` | Payment records, newest first; both date filters are optional |
+| GET | `/api/payments?from=2026-10-01&to=2026-10-31&page=0&size=20` | Paged payment records, newest first; both date filters are optional |
 
 Summary response:
 
@@ -348,6 +357,7 @@ Logs are append-only and created by workflow actions. Actions: `CREATED`, `ASSIG
 - `401 Unauthorized` for a missing or expired session.
 - `404 Not Found` for unknown worker or order.
 - `409 Conflict` for a transition that is not allowed in the current status.
+- `429 Too Many Requests` after too many failed logins; check `Retry-After`.
 
 ---
 
@@ -359,10 +369,10 @@ Logs are append-only and created by workflow actions. Actions: `CREATED`, `ASSIG
 - Order management: paginated list with status filter and customer search, create, edit, cancel, detail view.
 - Workflow actions: assign, start, complete, pickup, payment, cancel, with transition rules and enforced stage order.
 - Order timeline: written automatically by workflow actions and displayed chronologically.
-- Finance: payment records, revenue summary (total/month/today), daily report, CSV export, and a Finance page with date filters.
-- Dashboard: active orders, pending pickups, active workers, total orders, recent orders, revenue.
-- Admin authentication: JWT in an HttpOnly cookie, login page, route guard, and protected API.
-- REST API with validation, 401/404/409 handling, Swagger UI, and health check.
+- Finance: paginated payment records, revenue summary (total/month/today), daily report, CSV export, and a Finance page with date filters.
+- Dashboard: server-side aggregate counts, recent orders, and revenue.
+- Admin authentication: 15-minute access JWT plus an 8-hour refresh session in HttpOnly cookies, immediate logout revocation, login rate limiting, login page, route guard, and protected API.
+- REST API with validation, 401/404/409/429 handling, Swagger UI, and health check.
 - Service layer for worker, order, and finance business rules.
 - Frontend admin UI with sidebar layout, tables, modal forms, and responsive CSS.
 
@@ -370,8 +380,8 @@ Logs are append-only and created by workflow actions. Actions: `CREATED`, `ASSIG
 
 - Worker login and multi-user roles (only a single admin account can sign in).
 - Partial or down payments (only one full payment per order is supported).
-- Refresh tokens, token revocation, and login rate limiting.
-- Pagination for payments (the date filter and daily report are used instead).
+- Persistent auth sessions and rate-limit counters across backend restarts or multiple instances.
+- Refresh token rotation.
 - Flyway migrations (deferred by choice).
 - Automated tests (deferred by choice).
 - Hard delete for workers and orders (intentionally replaced by deactivate/cancel).
@@ -409,12 +419,12 @@ backend/
 src/main/java/com/baghaztra/tailorworkflow
 
 ├── config            (CORS, Security)
-├── controller        (auth, workers, orders, order logs, finance)
+├── controller        (auth, dashboard, workers, orders, order logs, finance)
 ├── dto               (PageResponse)
 ├── entity            (Worker, Order, OrderLog, Payment)
 ├── repository        (Spring Data JPA)
-├── security          (JWT, cookie, admin credentials)
-├── service           (WorkerService, OrderService, FinanceService)
+├── security          (JWT, cookies, sessions, rate limiter, admin credentials)
+├── service           (DashboardService, WorkerService, OrderService, FinanceService)
 └── exception         (planned)
 ```
 
@@ -462,18 +472,18 @@ This project is under active development. Progress against the planned features:
 | Order management | 95% |
 | Order timeline | 95% |
 | Workflow management | 95% |
-| Dashboard | 75% |
-| Finance | 90% |
-| Authentication | 90% |
-| Infrastructure and code quality | 70% |
-| **Overall** | **±85%** |
+| Dashboard | 90% |
+| Finance | 95% |
+| Authentication | 95% |
+| Infrastructure and code quality | 75% |
+| **Overall** | **±88%** |
 
-Deferred by choice: Flyway, automated tests, and partial payments. Optional next steps:
+Deferred by choice: Flyway, automated tests, partial payments, and multi-role access. Optional next steps:
 
 1. Flyway migrations to replace `ddl-auto=update`.
-2. Automated tests for workflow and auth.
-3. Refresh token, logout revocation, and login rate limiting.
-4. Pagination for payments and dashboard stats endpoints.
+2. Automated tests for workflow, auth, and pagination.
+3. Worker login and role-based access.
+4. Persistent auth sessions, refresh token rotation, and distributed rate limiting.
 
 ---
 

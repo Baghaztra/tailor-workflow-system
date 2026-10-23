@@ -1,5 +1,5 @@
 import { api } from './api'
-import type { FinanceReportRow, FinanceSummary, Payment } from '@/types'
+import type { FinanceReportRow, FinanceSummary, Page, Payment } from '@/types'
 
 export const getFinanceSummary = () =>
   api.get<FinanceSummary>('/api/finance/summary').then((response) => response.data)
@@ -9,8 +9,13 @@ export interface PaymentFilter {
   to?: string
 }
 
-export const listPayments = (params: PaymentFilter = {}) =>
-  api.get<Payment[]>('/api/payments', { params }).then((response) => response.data)
+export interface PaymentQuery extends PaymentFilter {
+  page?: number
+  size?: number
+}
+
+export const listPayments = (params: PaymentQuery = {}) =>
+  api.get<Page<Payment>>('/api/payments', { params }).then((response) => response.data)
 
 export const getFinanceReport = (params: PaymentFilter = {}) =>
   api.get<FinanceReportRow[]>('/api/finance/report', { params }).then((response) => response.data)

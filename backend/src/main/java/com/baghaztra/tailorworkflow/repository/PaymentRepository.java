@@ -1,6 +1,8 @@
 package com.baghaztra.tailorworkflow.repository;
 
 import com.baghaztra.tailorworkflow.entity.Payment;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -31,4 +33,17 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     @EntityGraph(attributePaths = "order")
     List<Payment> findByPaidAtGreaterThanEqualAndPaidAtLessThanOrderByPaidAtDesc(Instant from, Instant to);
+
+    @Override
+    @EntityGraph(attributePaths = "order")
+    Page<Payment> findAll(Pageable pageable);
+
+    @EntityGraph(attributePaths = "order")
+    Page<Payment> findByPaidAtGreaterThanEqual(Instant from, Pageable pageable);
+
+    @EntityGraph(attributePaths = "order")
+    Page<Payment> findByPaidAtLessThan(Instant to, Pageable pageable);
+
+    @EntityGraph(attributePaths = "order")
+    Page<Payment> findByPaidAtGreaterThanEqualAndPaidAtLessThan(Instant from, Instant to, Pageable pageable);
 }
