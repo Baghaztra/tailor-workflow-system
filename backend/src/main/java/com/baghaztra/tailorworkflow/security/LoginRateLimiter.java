@@ -1,57 +1,56 @@
 package com.baghaztra.tailorworkflow.security;
 
+import com.baghaztra.tailorworkflow.entity.LoginAttempt;
+import com.baghaztra.tailorworkflow.repository.LoginAttemptRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 
 @Component
 public class LoginRateLimiter {
 
+    private final LoginAttemptRepository attempts;
     private final int maxAttempts;
     private final Duration window;
-    private final Map<String, Deque<Instant>> failures = new HashMap<>();
 
     public LoginRateLimiter(
+            LoginAttemptRepository attempts,
             @Value("${app.auth.max-attempts:5}") int maxAttempts,
             @Value("${app.auth.window-minutes:15}") long windowMinutes) {
+        this.attempts = attempts;
         this.maxAttempts = maxAttempts;
         this.window = Duration.ofMinutes(windowMinutes);
     }
 
-    public synchronized Optional<Long> retryAfterSeconds(String key) {
-        Deque<Instant> attempts = failures.get(key);
-        if (attempts == null) {
+    @Transactional
+    public Optional<Long> retryAfterSeconds(String key) {
+        Instant now = Instant.now();
+        Instant cutoff = now.minus(window);
+        attempts.deleteByAttemptedAtBefore(cutoff);
+
+        if (attempts.countByAttemptKeyAndAttemptedAtAfter(key, cutoff) < maxAttempts) {
             return Optional.empty();
         }
 
-        Instant cutoff = Instant.now().minus(window);
-        while (!attempts.isEmpty() && attempts.peekFirst().isBefore(cutoff)) {
-            attempts.pollFirst();
-        }
-        if (attempts.isEmpty()) {
-            failures.remove(key);
-            return Optional.empty();
-        }
-        if (attempts.size() < maxAttempts) {
-            return Optional.empty();
-        }
-
-        long seconds = Duration.between(Instant.now(), attempts.peekFirst().plus(window)).getSeconds();
+        Instant first = attempts
+                .findFirstByAttemptKeyAndAttemptedAtAfterOrderByAttemptedAtAsc(key, cutoff)
+                .map(LoginAttempt::getAttemptedAt)
+                .orElse(now);
+        long seconds = Duration.between(now, first.plus(window)).getSeconds();
         return Optional.of(Math.max(seconds, 1));
     }
 
-    public synchronized void recordFailure(String key) {
-        failures.computeIfAbsent(key, ignored -> new ArrayDeque<>()).addLast(Instant.now());
+    @Transactional
+    public void recordFailure(String key) {
+        attempts.save(new LoginAttempt(key, Instant.now()));
     }
 
-    public synchronized void clear(String key) {
-        failures.remove(key);
+    @Transactional
+    public void clear(String key) {
+        attempts.deleteByAttemptKey(key);
     }
 }
