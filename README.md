@@ -2,9 +2,9 @@
 
 A full-stack tailor order management system built to simulate a real-world tailoring business workflow.
 
-This project is designed as a portfolio project for learning enterprise Java development using Spring Boot while applying clean architecture, RESTful API design, and business workflow modeling.
+This project is designed as a portfolio project for learning enterprise Java development using Spring Boot while applying a layered architecture, RESTful API design, business workflow modeling, and database migrations.
 
-The frontend is built with Vue 3, TypeScript, and Vite 8, while the backend exposes a REST API using Spring Boot 4 on Java 17.
+The frontend is built with Vue 3, TypeScript, and Vite 8, while the backend exposes a REST API using Spring Boot 4 on Java 17. The project includes integration tests and a GitHub Actions CI pipeline.
 
 ---
 
@@ -13,7 +13,7 @@ The frontend is built with Vue 3, TypeScript, and Vite 8, while the backend expo
 - Learn modern Java backend development.
 - Practice Spring Boot in a real-world project.
 - Design a business workflow instead of a simple CRUD application.
-- Apply clean architecture and separation of concerns.
+- Apply a layered architecture with clear controller, service, repository, and entity responsibilities.
 - Demonstrate enterprise application development skills.
 
 ---
@@ -76,12 +76,9 @@ Instead of focusing on graphics or gameplay, this project focuses on modeling a 
 - Spring Boot Actuator (`/actuator/health`)
 - Springdoc OpenAPI 3.1.0 (Swagger UI)
 - PostgreSQL driver
-- JUnit 5
+- Flyway 11 (versioned SQL migrations)
+- JUnit 5 integration tests
 - Gradle 9.8.1 (wrapper)
-
-Planned:
-
-- Flyway
 
 ## Frontend
 
@@ -96,7 +93,7 @@ Planned:
 ## Database
 
 - PostgreSQL
-- Flyway (planned)
+- Flyway (schema source of truth; Hibernate validates the schema)
 
 ---
 
@@ -161,7 +158,8 @@ The API runs at `http://localhost:8081`:
 Notes:
 
 - `server.port=8081` is set because port 8080 is used by another local application.
-- `ddl-auto=update` is enabled for development, so tables are created automatically. This will be replaced by Flyway migrations.
+- Flyway runs the SQL files in `src/main/resources/db/migration` on startup. Hibernate uses `ddl-auto=validate`, so the entities and database schema must stay in sync.
+- On an existing database created before Flyway, `spring.flyway.baseline-on-migrate=true` records the current schema as the Flyway baseline and applies later migrations. A fresh database runs every migration from `V1`.
 - CORS for the frontend origin is set with `app.cors.allowed-origins` in `application.properties` (default `http://localhost:8082`), with credentials enabled for the auth cookie.
 - All `/api/**` endpoints except `/api/auth/login`, `/api/auth/refresh`, and `/api/auth/logout` require authentication. Swagger UI and the health endpoint stay public.
 - `tailor_token` is a 15-minute access JWT in an `HttpOnly`, `SameSite=Lax` cookie. `tailor_refresh` is an 8-hour refresh token scoped to `/api/auth`; both are never exposed to JavaScript.
@@ -197,6 +195,51 @@ Environment variables (`.env`):
 | `VITE_API_BASE_URL` | `http://localhost:8081` | Backend base URL for API calls |
 
 Other scripts: `bun run build` (type-check and production build), `bun run type-check`.
+
+## Tests
+
+Backend integration tests use a separate PostgreSQL database named `tailor_test`; they do not touch the development database.
+
+Create it once:
+
+```sql
+CREATE DATABASE tailor_test;
+```
+
+Run the tests:
+
+```sh
+cd backend
+./gradlew test
+```
+
+On Windows:
+
+```powershell
+cd backend
+$env:TEST_DB_PASSWORD = "your-postgres-password"
+.\gradlew.bat test
+```
+
+The test profile defaults to `jdbc:postgresql://localhost:5432/tailor_test` and falls back to `DB_PASSWORD` from `backend/.env`. Override the connection with `TEST_DB_URL`, `TEST_DB_USERNAME`, and `TEST_DB_PASSWORD`.
+
+Tests use Flyway to create or migrate the schema, then roll back their data with `@Transactional`. If `tailor_test` contains old tables without Flyway history, drop and recreate it before running the suite.
+
+Coverage includes:
+
+- Full order workflow, timeline ordering, stage guards, duplicate start rejection, duplicate payment rejection, and cancellation.
+- Login, refresh, logout/revocation, invalid credentials, and the login rate limit.
+- Paginated worker responses.
+
+Frontend checks:
+
+```sh
+cd frontend
+bun run type-check
+bun run build
+```
+
+CI runs both backend tests and frontend checks on every push and pull request through `.github/workflows/ci.yml`.
 
 ---
 
@@ -374,6 +417,9 @@ Logs are append-only and created by workflow actions. Actions: `CREATED`, `ASSIG
 - Admin authentication: 15-minute access JWT plus an 8-hour database-backed refresh session in HttpOnly cookies, immediate logout revocation, persistent login rate limiting, login page, route guard, and protected API.
 - REST API with validation, 401/404/409/429 handling, Swagger UI, and health check.
 - Service layer for worker, order, and finance business rules.
+- Flyway-managed schema with Hibernate validation.
+- Integration tests for workflow, authentication, pagination, and schema startup.
+- GitHub Actions CI for backend tests and frontend type-check/build.
 - Frontend admin UI with sidebar layout, tables, modal forms, and responsive CSS.
 
 ## Not Implemented Yet
@@ -381,8 +427,8 @@ Logs are append-only and created by workflow actions. Actions: `CREATED`, `ASSIG
 - Worker login and multi-user roles (only a single admin account can sign in).
 - Partial or down payments (only one full payment per order is supported).
 - Refresh token rotation and strict atomic rate limiting under concurrent logins.
-- Flyway migrations (deferred by choice).
-- Automated tests (deferred by choice).
+- Global exception handler and a single consistent JSON error contract.
+- Docker Compose for a one-command local demo.
 - Hard delete for workers and orders (intentionally replaced by deactivate/cancel).
 
 ---
@@ -423,8 +469,15 @@ src/main/java/com/baghaztra/tailorworkflow
 ├── entity            (Worker, Order, OrderLog, Payment, AuthSession, LoginAttempt)
 ├── repository        (Spring Data JPA)
 ├── security          (JWT, cookies, sessions, rate limiter, admin credentials)
-├── service           (DashboardService, WorkerService, OrderService, FinanceService)
-└── exception         (planned)
+└── service           (DashboardService, WorkerService, OrderService, FinanceService)
+
+src/main/resources
+└── db/migration       (Flyway V1 schema, V2 fix)
+
+src/test/java/com/baghaztra/tailorworkflow
+├── IntegrationTest        (shared test profile and transaction boundary)
+├── AuthIntegrationTest    (cookies, refresh, logout, rate limit, pagination)
+└── OrderWorkflowIntegrationTest (workflow and timeline rules)
 ```
 
 ---
@@ -459,7 +512,7 @@ src
 | `auth_sessions` | `id`, `refresh_hash`, `expires_at`, `created_at` |
 | `login_attempts` | `id`, `attempt_key`, `attempted_at` |
 
-Enums are stored as strings. `order_logs.order_id` is indexed, `payments.order_id` is unique, and relations are loaded lazily. `login_attempts` is indexed by `(attempt_key, attempted_at)`. `auth_sessions` and `login_attempts` are created by `ddl-auto=update` until Flyway is added.
+Enums are stored as strings. `order_logs.order_id` is indexed, `payments.order_id` is unique, and relations are loaded lazily. `login_attempts` is indexed by `(attempt_key, attempted_at)`. The schema is created by Flyway migrations in `src/main/resources/db/migration`; Hibernate only validates it. The timeline is ordered by log ID to keep it stable when two actions share the same timestamp.
 
 ---
 
@@ -476,15 +529,15 @@ This project is under active development. Progress against the planned features:
 | Dashboard | 90% |
 | Finance | 95% |
 | Authentication | 97% |
-| Infrastructure and code quality | 77% |
-| **Overall** | **±89%** |
+| Infrastructure and code quality | 90% |
+| **Overall** | **±93%** |
 
-Deferred by choice: Flyway, automated tests, partial payments, and multi-role access. Optional next steps:
+Deferred by choice: partial payments, multi-role access, refresh token rotation, and a global error handler. Optional next steps:
 
-1. Flyway migrations to replace `ddl-auto=update`.
-2. Automated tests for workflow, auth, and pagination.
-3. Worker login and role-based access.
-4. Refresh token rotation and strict atomic rate limiting under concurrent logins.
+1. Add a global exception handler with one JSON error contract.
+2. Add worker login and role-based access.
+3. Add refresh token rotation and strict atomic rate limiting under concurrent logins.
+4. Add Docker Compose for a one-command local demo.
 
 ---
 

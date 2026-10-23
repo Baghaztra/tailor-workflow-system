@@ -9,9 +9,9 @@ import java.util.Optional;
 
 public interface OrderLogRepository extends JpaRepository<OrderLog, Long> {
 
-    List<OrderLog> findByOrderIdOrderByCreatedAtAsc(Long orderId);
+    List<OrderLog> findByOrderIdOrderByIdAsc(Long orderId);
 
-    Optional<OrderLog> findTopByOrderIdAndStageOrderByCreatedAtDesc(Long orderId, Order.Stage stage);
+    Optional<OrderLog> findTopByOrderIdAndStageOrderByIdDesc(Long orderId, Order.Stage stage);
 
-    Optional<OrderLog> findTopByOrderIdAndActionOrderByCreatedAtDesc(Long orderId, OrderLog.Action action);
+    Optional<OrderLog> findTopByOrderIdAndActionOrderByIdDesc(Long orderId, OrderLog.Action action);
 }

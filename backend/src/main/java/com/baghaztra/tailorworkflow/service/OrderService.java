@@ -116,7 +116,7 @@ public class OrderService {
         if (order.getStage() == null) {
             throw conflict(order, "no stage has been assigned");
         }
-        boolean alreadyStarted = logs.findTopByOrderIdAndStageOrderByCreatedAtDesc(id, order.getStage())
+        boolean alreadyStarted = logs.findTopByOrderIdAndStageOrderByIdDesc(id, order.getStage())
                 .map(log -> log.getAction() == OrderLog.Action.STARTED)
                 .orElse(false);
         if (alreadyStarted) {
@@ -188,7 +188,7 @@ public class OrderService {
     @Transactional(readOnly = true)
     public List<OrderLog> listLogs(Long orderId) {
         find(orderId);
-        return logs.findByOrderIdOrderByCreatedAtAsc(orderId);
+        return logs.findByOrderIdOrderByIdAsc(orderId);
     }
 
     private void log(Order order, OrderLog.Action action, Order.Stage stage, Worker worker, String note) {
@@ -205,7 +205,7 @@ public class OrderService {
     }
 
     private Order.Stage nextStage(Long orderId) {
-        Order.Stage last = logs.findTopByOrderIdAndActionOrderByCreatedAtDesc(orderId, OrderLog.Action.COMPLETED)
+        Order.Stage last = logs.findTopByOrderIdAndActionOrderByIdDesc(orderId, OrderLog.Action.COMPLETED)
                 .map(OrderLog::getStage)
                 .orElse(null);
 
