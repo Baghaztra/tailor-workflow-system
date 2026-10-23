@@ -7,6 +7,7 @@ const menu = [
   { name: 'Dashboard', path: '/' },
   { name: 'Workers', path: '/workers' },
   { name: 'Orders', path: '/orders' },
+  { name: 'Finance', path: '/finance' },
 ]
 
 const isActive = (path: string) =>

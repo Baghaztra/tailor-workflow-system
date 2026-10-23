@@ -1,7 +1,7 @@
 package com.baghaztra.tailorworkflow.controller;
 
 import com.baghaztra.tailorworkflow.entity.Worker;
-import com.baghaztra.tailorworkflow.repository.WorkerRepository;
+import com.baghaztra.tailorworkflow.service.WorkerService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,47 +24,31 @@ import java.util.List;
 @RequestMapping("/api/workers")
 public class WorkerController {
 
-    private final WorkerRepository workers;
+    private final WorkerService workers;
 
-    public WorkerController(WorkerRepository workers) {
+    public WorkerController(WorkerService workers) {
         this.workers = workers;
     }
 
     @GetMapping
     public List<WorkerResponse> list(@RequestParam(required = false) Boolean active) {
-        List<Worker> result = active == null ? workers.findAll() : workers.findByActive(active);
-        return result.stream().map(WorkerResponse::from).toList();
+        return workers.list(active).stream().map(WorkerResponse::from).toList();
     }
 
     @GetMapping("/{id}")
     public WorkerResponse get(@PathVariable Long id) {
-        return WorkerResponse.from(find(id));
+        return WorkerResponse.from(workers.get(id));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public WorkerResponse create(@Valid @RequestBody SaveWorkerRequest request) {
-        Worker worker = new Worker(request.name(), request.specialization());
-        if (request.active() != null) {
-            worker.setActive(request.active());
-        }
-        return WorkerResponse.from(workers.save(worker));
+        return WorkerResponse.from(workers.create(request.name(), request.specialization(), request.active()));
     }
 
     @PutMapping("/{id}")
     public WorkerResponse update(@PathVariable Long id, @Valid @RequestBody SaveWorkerRequest request) {
-        Worker worker = find(id);
-        worker.setName(request.name());
-        worker.setSpecialization(request.specialization());
-        if (request.active() != null) {
-            worker.setActive(request.active());
-        }
-        return WorkerResponse.from(workers.save(worker));
-    }
-
-    private Worker find(Long id) {
-        return workers.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Worker " + id + " not found"));
+        return WorkerResponse.from(workers.update(id, request.name(), request.specialization(), request.active()));
     }
 
     public record SaveWorkerRequest(

@@ -1,4 +1,5 @@
 import Dashboard from '@/pages/dashboard.vue'
+import Finance from '@/pages/finance.vue'
 import OrderDetail from '@/pages/order-detail.vue'
 import Orders from '@/pages/orders.vue'
 import Workers from '@/pages/workers.vue'
@@ -26,6 +27,11 @@ const router = createRouter({
       name: 'order-detail',
       path: '/orders/:id',
       component: OrderDetail,
+    },
+    {
+      name: 'finance',
+      path: '/finance',
+      component: Finance,
     },
   ],
 })

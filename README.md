@@ -217,9 +217,14 @@ There is no delete endpoint; workers are deactivated with `active: false` so ord
 |---|---|---|
 | GET | `/api/orders?status=CREATED` | List orders, optionally filtered by status |
 | GET | `/api/orders/{id}` | Get one order |
-| POST | `/api/orders` | Create an order |
-| PUT | `/api/orders/{id}` | Update customer name and total price |
-| PATCH | `/api/orders/{id}/status` | Update status and production stage |
+| POST | `/api/orders` | Create an order (writes a `CREATED` log) |
+| PUT | `/api/orders/{id}` | Update customer name and total price while the order is active |
+| POST | `/api/orders/{id}/assign` | Assign an active worker and start the next stage |
+| POST | `/api/orders/{id}/start` | Mark the assigned stage as started |
+| POST | `/api/orders/{id}/complete` | Complete the current stage |
+| POST | `/api/orders/{id}/pickup` | Mark a ready order as picked up |
+| POST | `/api/orders/{id}/payment` | Record payment and complete the order |
+| POST | `/api/orders/{id}/cancel` | Cancel an active order |
 
 Create request:
 
@@ -230,45 +235,76 @@ Create request:
 }
 ```
 
-Status update request:
+Assign request:
 
 ```json
 {
-  "status": "IN_PROGRESS",
-  "stage": "CUTTING"
+  "workerId": 1
 }
 ```
 
 `status`: `CREATED`, `IN_PROGRESS`, `READY_FOR_PICKUP`, `PICKED_UP`, `COMPLETED`, `CANCELLED`.
 `stage`: `CUTTING`, `SEWING`, `FINISHING` (nullable).
 
-Orders are cancelled with `status: "CANCELLED"`, not deleted.
+### Workflow rules
+
+| Action | Allowed when | Result |
+|---|---|---|
+| `assign` | status `CREATED`/`IN_PROGRESS`, no stage in progress, worker active | stage = worker specialization, status `IN_PROGRESS` |
+| `start` | status `IN_PROGRESS`, stage assigned | `STARTED` log |
+| `complete` | status `IN_PROGRESS`, stage assigned | stage cleared; `FINISHING` moves the order to `READY_FOR_PICKUP` |
+| `pickup` | status `READY_FOR_PICKUP` | status `PICKED_UP` |
+| `payment` | status `PICKED_UP` | status `COMPLETED` |
+| `cancel` | status not `COMPLETED`/`CANCELLED` | status `CANCELLED` |
+
+Every action writes a timeline entry automatically; status and logs stay consistent. There is no endpoint to set status directly.
+Orders are cancelled, not deleted, so history stays intact.
+
+### Payment
+
+Payment request:
+
+```json
+{
+  "amount": 250000,
+  "method": "CASH"
+}
+```
+
+`method`: `CASH`, `TRANSFER`. One payment per order, `amount` at least `0.01`. A second payment returns `409 Conflict`.
+If `totalPrice` is set, the frontend pre-fills the amount.
+
+## Finance
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/finance/summary` | Total, monthly, and daily revenue plus payment count |
+| GET | `/api/payments?from=2026-10-01&to=2026-10-31` | Payment records, newest first; both date filters are optional |
+
+Summary response:
+
+```json
+{
+  "totalRevenue": 250000,
+  "monthRevenue": 250000,
+  "todayRevenue": 250000,
+  "paymentCount": 1
+}
+```
 
 ## Order Logs (Timeline)
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/orders/{orderId}/logs` | Get the order timeline, oldest first |
-| POST | `/api/orders/{orderId}/logs` | Append a timeline entry |
 
-Create request:
-
-```json
-{
-  "action": "ASSIGNED",
-  "stage": "CUTTING",
-  "workerId": 1,
-  "note": "Assigned to cutting"
-}
-```
-
-`action`: `CREATED`, `ASSIGNED`, `STARTED`, `COMPLETED`, `READY_FOR_PICKUP`, `PICKED_UP`, `PAYMENT_RECORDED`.
-`stage`, `workerId`, and `note` are optional. Logs are append-only: there is no update or delete endpoint.
+Logs are append-only and created by workflow actions. Actions: `CREATED`, `ASSIGNED`, `STARTED`, `COMPLETED`, `READY_FOR_PICKUP`, `PICKED_UP`, `PAYMENT_RECORDED`, `CANCELLED`.
 
 ## Validation and Errors
 
-- `400 Bad Request` for invalid bodies (blank names, unknown enum values, negative price).
-- `404 Not Found` for unknown worker, order, or referenced worker.
+- `400 Bad Request` for invalid bodies (blank names, unknown enum values, negative price) or an inactive worker.
+- `404 Not Found` for unknown worker or order.
+- `409 Conflict` for a transition that is not allowed in the current status.
 
 ---
 
@@ -278,18 +314,21 @@ Create request:
 
 - Worker management: list, create, edit, activate/deactivate, specialization.
 - Order management: list with status filter, create, edit, cancel, detail view.
-- Order timeline: append logs and display them chronologically.
-- Workflow tracking: current production stage per order.
-- Dashboard: active orders, pending pickups, active workers, total orders, recent orders.
-- REST API with validation, 404 handling, Swagger UI, and health check.
+- Workflow actions: assign, start, complete, pickup, payment, cancel, with transition rules.
+- Order timeline: written automatically by workflow actions and displayed chronologically.
+- Finance: payment records, revenue summary (total/month/today), and a Finance page with date filters.
+- Dashboard: active orders, pending pickups, active workers, total orders, recent orders, revenue.
+- REST API with validation, 404/409 handling, Swagger UI, and health check.
+- Service layer for worker, order, and finance business rules.
 - Frontend admin UI with sidebar layout, tables, modal forms, and responsive CSS.
 
 ## Not Implemented Yet
 
 - Authentication and role-based authorization (Admin, Worker).
-- Automatic workflow progression and dedicated assign/start/complete endpoints.
-- Finance: payment records, revenue summary, daily reports.
-- Dashboard: orders by stage and revenue.
+- Enforcing the CUTTING → SEWING → FINISHING order when assigning a worker.
+- Idempotency guards against repeated `start`/`complete` calls.
+- Partial or down payments (only one full payment per order is supported).
+- Finance exports and daily report pages.
 - Flyway migrations.
 - Pagination, search, and automated tests.
 - Hard delete for workers and orders (intentionally replaced by deactivate/cancel).
@@ -309,9 +348,9 @@ Vue 3 + TypeScript + Vite 8
       ▼
 Spring Boot 4 (Java 17)
 ├── Controllers
+├── Services (workflow rules, transactions)
 ├── Repositories
-├── Entities
-└── Business Rules (planned: service layer)
+└── Entities
       │
       ▼
 PostgreSQL
@@ -327,10 +366,10 @@ backend/
 src/main/java/com/baghaztra/tailorworkflow
 
 ├── config            (CORS)
-├── controller        (workers, orders, order logs)
-├── entity            (Worker, Order, OrderLog)
+├── controller        (workers, orders, order logs, finance)
+├── entity            (Worker, Order, OrderLog, Payment)
 ├── repository        (Spring Data JPA)
-├── service           (planned)
+├── service           (WorkerService, OrderService, FinanceService)
 ├── dto               (planned)
 ├── security          (planned)
 └── exception         (planned)
@@ -348,7 +387,7 @@ src
 ├── assets            (global CSS)
 ├── components        (sidebar, base modal)
 ├── layouts           (main layout)
-├── pages             (dashboard, workers, orders, order detail)
+├── pages             (dashboard, workers, orders, order detail, finance)
 ├── router
 ├── services          (axios client, API modules)
 ├── utils             (date and currency formatting)
@@ -364,8 +403,9 @@ src
 | `workers` | `id`, `name`, `specialization`, `active`, `created_at` |
 | `orders` | `id`, `customer_name`, `status`, `stage`, `total_price`, `created_at`, `updated_at` |
 | `order_logs` | `id`, `order_id`, `worker_id`, `stage`, `action`, `note`, `created_at` |
+| `payments` | `id`, `order_id` (unique), `amount`, `method`, `paid_at` |
 
-Enums are stored as strings. `order_logs.order_id` is indexed, and relations are loaded lazily.
+Enums are stored as strings. `order_logs.order_id` is indexed, `payments.order_id` is unique, and relations are loaded lazily.
 
 ---
 
@@ -376,21 +416,21 @@ This project is under active development. Progress against the planned features:
 | Module | Progress |
 |---|---|
 | Worker management | 90% |
-| Order management | 85% |
-| Order timeline | 90% |
-| Workflow management | 45% |
-| Dashboard | 60% |
-| Finance | 10% |
+| Order management | 90% |
+| Order timeline | 95% |
+| Workflow management | 85% |
+| Dashboard | 70% |
+| Finance | 75% |
 | Authentication | 0% |
-| Infrastructure and code quality | 50% |
-| **Overall** | **±55%** |
+| Infrastructure and code quality | 55% |
+| **Overall** | **±70%** |
 
 Next steps, in order:
 
-1. Service layer and workflow endpoints (`assign`, `start`, `complete`) with automatic timeline entries.
-2. Flyway migrations to replace `ddl-auto=update`.
-3. Finance: payment entity, revenue summary, daily reports.
-4. JWT authentication and role-based authorization.
+1. Flyway migrations to replace `ddl-auto=update`.
+2. JWT authentication and role-based authorization.
+3. Pagination, search, and automated tests.
+4. Enforce stage order and add idempotency guards.
 
 ---
 

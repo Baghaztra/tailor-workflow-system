@@ -23,7 +23,7 @@ import java.time.Instant;
 public class OrderLog {
 
     public enum Action {
-        CREATED, ASSIGNED, STARTED, COMPLETED, READY_FOR_PICKUP, PICKED_UP, PAYMENT_RECORDED
+        CREATED, ASSIGNED, STARTED, COMPLETED, READY_FOR_PICKUP, PICKED_UP, PAYMENT_RECORDED, CANCELLED
     }
 
     @Id

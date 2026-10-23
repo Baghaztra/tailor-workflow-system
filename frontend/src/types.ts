@@ -12,16 +12,15 @@ export const ORDER_STATUSES = [
 ] as const
 export type OrderStatus = (typeof ORDER_STATUSES)[number]
 
-export const ORDER_ACTIONS = [
-  'CREATED',
-  'ASSIGNED',
-  'STARTED',
-  'COMPLETED',
-  'READY_FOR_PICKUP',
-  'PICKED_UP',
-  'PAYMENT_RECORDED',
-] as const
-export type OrderAction = (typeof ORDER_ACTIONS)[number]
+export type OrderAction =
+  | 'CREATED'
+  | 'ASSIGNED'
+  | 'STARTED'
+  | 'COMPLETED'
+  | 'READY_FOR_PICKUP'
+  | 'PICKED_UP'
+  | 'PAYMENT_RECORDED'
+  | 'CANCELLED'
 
 export interface Worker {
   id: number
@@ -62,14 +61,23 @@ export interface SaveOrder {
   totalPrice: number | null
 }
 
-export interface UpdateOrderStatus {
-  status: OrderStatus
-  stage: OrderStage | null
+export const PAYMENT_METHODS = ['CASH', 'TRANSFER'] as const
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
+
+export interface Payment {
+  id: number
+  orderId: number
+  customerName: string
+  amount: number
+  method: PaymentMethod
+  paidAt: string
 }
 
-export interface CreateOrderLog {
-  action: OrderAction
-  stage?: OrderStage | null
-  workerId?: number | null
-  note?: string | null
+export interface FinanceSummary {
+  totalRevenue: number
+  monthRevenue: number
+  todayRevenue: number
+  paymentCount: number
 }
+
+

@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { errorMessage } from '@/services/api'
+import { getFinanceSummary } from '@/services/finance'
 import { listOrders } from '@/services/orders'
 import { listWorkers } from '@/services/workers'
 import { formatDate, formatPrice } from '@/utils/format'
-import type { Order, Worker } from '@/types'
+import type { FinanceSummary, Order, Worker } from '@/types'
 
 const orders = ref<Order[]>([])
 const workers = ref<Worker[]>([])
+const finance = ref<FinanceSummary | null>(null)
 const loading = ref(true)
 const error = ref('')
 
@@ -27,9 +29,14 @@ const recentOrders = computed(() => [...orders.value].sort((a, b) => b.id - a.id
 
 onMounted(async () => {
   try {
-    const [orderList, workerList] = await Promise.all([listOrders(), listWorkers()])
+    const [orderList, workerList, financeData] = await Promise.all([
+      listOrders(),
+      listWorkers(),
+      getFinanceSummary(),
+    ])
     orders.value = orderList
     workers.value = workerList
+    finance.value = financeData
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -42,7 +49,7 @@ onMounted(async () => {
   <div class="page-header">
     <div>
       <h1>Dashboard</h1>
-      <p class="subtitle">Overview of orders and workers</p>
+      <p class="subtitle">Overview of orders, workers, and revenue</p>
     </div>
   </div>
 
@@ -66,6 +73,14 @@ onMounted(async () => {
       <div class="stat">
         <div class="stat-label">Total orders</div>
         <div class="stat-value">{{ orders.length }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Revenue this month</div>
+        <div class="stat-value">{{ formatPrice(finance?.monthRevenue ?? 0) }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Total revenue</div>
+        <div class="stat-value">{{ formatPrice(finance?.totalRevenue ?? 0) }}</div>
       </div>
     </div>
 

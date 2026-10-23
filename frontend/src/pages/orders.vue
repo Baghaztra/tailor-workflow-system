@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import BaseModal from '@/components/BaseModal.vue'
 import { errorMessage } from '@/services/api'
-import { createOrder, listOrders, updateOrder, updateOrderStatus } from '@/services/orders'
+import { cancelOrder as cancelOrderRequest, createOrder, listOrders, updateOrder } from '@/services/orders'
 import { formatDate, formatPrice } from '@/utils/format'
 import { ORDER_STATUSES } from '@/types'
 import type { Order, OrderStatus } from '@/types'
@@ -80,7 +80,7 @@ async function cancelOrder(order: Order) {
   }
 
   try {
-    await updateOrderStatus(order.id, { status: 'CANCELLED', stage: null })
+    await cancelOrderRequest(order.id)
     await load()
   } catch (e) {
     error.value = errorMessage(e)

@@ -293,6 +293,18 @@ h2 {
   margin-top: 8px;
 }
 
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

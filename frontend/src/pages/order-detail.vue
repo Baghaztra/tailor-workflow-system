@@ -1,12 +1,22 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import BaseModal from '@/components/BaseModal.vue'
 import { errorMessage } from '@/services/api'
-import { createOrderLog, getOrder, listOrderLogs, updateOrderStatus } from '@/services/orders'
+import {
+  assignOrder,
+  cancelOrder,
+  completeOrder,
+  getOrder,
+  listOrderLogs,
+  payOrder,
+  pickupOrder,
+  startOrder,
+} from '@/services/orders'
 import { listWorkers } from '@/services/workers'
 import { formatDate, formatPrice } from '@/utils/format'
-import { ORDER_ACTIONS, ORDER_STATUSES, SPECIALIZATIONS } from '@/types'
-import type { Order, OrderAction, OrderLog, OrderStage, OrderStatus, Worker } from '@/types'
+import { PAYMENT_METHODS } from '@/types'
+import type { Order, OrderLog, PaymentMethod, Worker } from '@/types'
 
 const route = useRoute()
 const orderId = Number(route.params.id)
@@ -17,20 +27,62 @@ const workers = ref<Worker[]>([])
 const loading = ref(true)
 const error = ref('')
 const message = ref('')
+const busy = ref(false)
 
-const statusForm = reactive({
-  status: 'CREATED' as OrderStatus,
-  stage: '' as '' | OrderStage,
-})
-const savingStatus = ref(false)
+const showAssign = ref(false)
+const selectedWorkerId = ref<'' | number>('')
 
-const logForm = reactive({
-  action: 'ASSIGNED' as OrderAction,
-  stage: '' as '' | OrderStage,
-  workerId: '' as '' | number,
-  note: '',
+const showPay = ref(false)
+const payForm = reactive({
+  amount: '',
+  method: 'CASH' as PaymentMethod,
 })
-const savingLog = ref(false)
+
+const activeWorkers = computed(() => workers.value.filter((worker) => worker.active))
+
+const canAssign = computed(() => {
+  const current = order.value
+  return (
+    current !== null &&
+    current.stage === null &&
+    (current.status === 'CREATED' || current.status === 'IN_PROGRESS')
+  )
+})
+const canPickup = computed(() => order.value?.status === 'READY_FOR_PICKUP')
+const canPay = computed(() => order.value?.status === 'PICKED_UP')
+const canCancel = computed(() => {
+  const current = order.value
+  return current !== null && current.status !== 'COMPLETED' && current.status !== 'CANCELLED'
+})
+
+const stageStarted = computed(() => {
+  const stage = order.value?.stage
+  if (!stage) {
+    return false
+  }
+  for (let index = logs.value.length - 1; index >= 0; index--) {
+    const log = logs.value[index]
+    if (!log || log.stage !== stage) {
+      continue
+    }
+    if (log.action === 'STARTED') {
+      return true
+    }
+    if (log.action === 'ASSIGNED' || log.action === 'COMPLETED') {
+      return false
+    }
+  }
+  return false
+})
+
+const canStart = computed(() => {
+  const current = order.value
+  return current?.status === 'IN_PROGRESS' && current.stage !== null && !stageStarted.value
+})
+const canComplete = computed(() => {
+  const current = order.value
+  return current?.status === 'IN_PROGRESS' && current.stage !== null && stageStarted.value
+})
 
 async function load() {
   loading.value = true
@@ -44,8 +96,6 @@ async function load() {
     order.value = orderData
     logs.value = logData
     workers.value = workerData
-    statusForm.status = orderData.status
-    statusForm.stage = orderData.stage ?? ''
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -53,39 +103,63 @@ async function load() {
   }
 }
 
-async function saveStatus() {
-  savingStatus.value = true
+async function run(request: () => Promise<Order>, success: string) {
+  busy.value = true
+  error.value = ''
   message.value = ''
   try {
-    order.value = await updateOrderStatus(orderId, {
-      status: statusForm.status,
-      stage: statusForm.stage || null,
-    })
-    message.value = 'Status updated.'
+    order.value = await request()
+    logs.value = await listOrderLogs(orderId)
+    message.value = success
+    return true
   } catch (e) {
     error.value = errorMessage(e)
+    return false
   } finally {
-    savingStatus.value = false
+    busy.value = false
   }
 }
 
-async function addLog() {
-  savingLog.value = true
-  message.value = ''
-  try {
-    await createOrderLog(orderId, {
-      action: logForm.action,
-      stage: logForm.stage || null,
-      workerId: logForm.workerId === '' ? null : Number(logForm.workerId),
-      note: logForm.note.trim() || null,
-    })
-    logForm.note = ''
-    logs.value = await listOrderLogs(orderId)
-    message.value = 'Log added.'
-  } catch (e) {
-    error.value = errorMessage(e)
-  } finally {
-    savingLog.value = false
+async function assign() {
+  if (selectedWorkerId.value === '') {
+    return
+  }
+  const assigned = await run(
+    () => assignOrder(orderId, Number(selectedWorkerId.value)),
+    'Worker assigned.',
+  )
+  if (assigned) {
+    showAssign.value = false
+    selectedWorkerId.value = ''
+  }
+}
+
+const start = () => run(() => startOrder(orderId), 'Work started.')
+const complete = () => run(() => completeOrder(orderId), 'Stage completed.')
+const pickup = () => run(() => pickupOrder(orderId), 'Order picked up.')
+
+function openPay() {
+  payForm.amount = order.value?.totalPrice == null ? '' : String(order.value.totalPrice)
+  payForm.method = 'CASH'
+  showPay.value = true
+}
+
+async function recordPayment() {
+  if (payForm.amount === '') {
+    return
+  }
+  const paid = await run(
+    () => payOrder(orderId, { amount: Number(payForm.amount), method: payForm.method }),
+    'Payment recorded.',
+  )
+  if (paid) {
+    showPay.value = false
+  }
+}
+
+function cancel() {
+  if (window.confirm(`Cancel order #${orderId}?`)) {
+    run(() => cancelOrder(orderId), 'Order cancelled.')
   }
 }
 
@@ -126,76 +200,33 @@ onMounted(load)
           <dt>Updated</dt>
           <dd>{{ formatDate(order.updatedAt) }}</dd>
         </dl>
-
-        <form class="card-form" @submit.prevent="saveStatus">
-          <h2>Update status</h2>
-
-          <div class="field">
-            <label for="order-status">Status</label>
-            <select id="order-status" v-model="statusForm.status">
-              <option v-for="status in ORDER_STATUSES" :key="status" :value="status">
-                {{ status }}
-              </option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="order-stage">Stage</label>
-            <select id="order-stage" v-model="statusForm.stage">
-              <option value="">—</option>
-              <option v-for="stage in SPECIALIZATIONS" :key="stage" :value="stage">{{ stage }}</option>
-            </select>
-          </div>
-
-          <div class="form-actions">
-            <button type="submit" class="btn btn-primary" :disabled="savingStatus">
-              {{ savingStatus ? 'Saving...' : 'Save status' }}
-            </button>
-          </div>
-        </form>
       </div>
 
       <div class="card">
-        <h2>Add log</h2>
-        <form @submit.prevent="addLog">
-          <div class="field">
-            <label for="log-action">Action</label>
-            <select id="log-action" v-model="logForm.action">
-              <option v-for="action in ORDER_ACTIONS" :key="action" :value="action">
-                {{ action }}
-              </option>
-            </select>
-          </div>
+        <h2>Workflow</h2>
 
-          <div class="field">
-            <label for="log-stage">Stage</label>
-            <select id="log-stage" v-model="logForm.stage">
-              <option value="">—</option>
-              <option v-for="stage in SPECIALIZATIONS" :key="stage" :value="stage">{{ stage }}</option>
-            </select>
-          </div>
+        <div class="workflow-actions">
+          <button v-if="canAssign" class="btn btn-primary" :disabled="busy" @click="showAssign = true">
+            Assign worker
+          </button>
+          <button v-if="canStart" class="btn btn-primary" :disabled="busy" @click="start">Start</button>
+          <button v-if="canComplete" class="btn btn-primary" :disabled="busy" @click="complete">
+            Complete
+          </button>
+          <button v-if="canPickup" class="btn btn-primary" :disabled="busy" @click="pickup">
+            Mark picked up
+          </button>
+          <button v-if="canPay" class="btn btn-primary" :disabled="busy" @click="openPay">
+            Record payment
+          </button>
+          <button v-if="canCancel" class="btn btn-danger" :disabled="busy" @click="cancel">
+            Cancel order
+          </button>
+        </div>
 
-          <div class="field">
-            <label for="log-worker">Worker</label>
-            <select id="log-worker" v-model="logForm.workerId">
-              <option value="">Unassigned</option>
-              <option v-for="worker in workers" :key="worker.id" :value="worker.id">
-                {{ worker.name }} ({{ worker.specialization }})
-              </option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="log-note">Note</label>
-            <textarea id="log-note" v-model="logForm.note" maxlength="500"></textarea>
-          </div>
-
-          <div class="form-actions">
-            <button type="submit" class="btn btn-primary" :disabled="savingLog">
-              {{ savingLog ? 'Saving...' : 'Add log' }}
-            </button>
-          </div>
-        </form>
+        <p v-if="!canAssign && !canStart && !canComplete && !canPickup && !canPay && !canCancel" class="empty">
+          No actions available.
+        </p>
       </div>
     </div>
 
@@ -214,5 +245,64 @@ onMounted(load)
       </ul>
       <p v-else class="empty">No logs yet.</p>
     </div>
+
+    <BaseModal v-if="showAssign" title="Assign worker" @close="showAssign = false">
+      <form @submit.prevent="assign">
+        <div class="field">
+          <label for="assign-worker">Worker</label>
+          <select id="assign-worker" v-model="selectedWorkerId" required>
+            <option value="" disabled>Select a worker</option>
+            <option v-for="worker in activeWorkers" :key="worker.id" :value="worker.id">
+              {{ worker.name }} ({{ worker.specialization }})
+            </option>
+          </select>
+        </div>
+
+        <p v-if="!activeWorkers.length" class="empty">No active workers available.</p>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" @click="showAssign = false">Cancel</button>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="busy || selectedWorkerId === ''"
+          >
+            Assign
+          </button>
+        </div>
+      </form>
+    </BaseModal>
+
+    <BaseModal v-if="showPay" title="Record payment" @close="showPay = false">
+      <form @submit.prevent="recordPayment">
+        <div class="field">
+          <label for="payment-amount">Amount</label>
+          <input
+            id="payment-amount"
+            v-model="payForm.amount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+          />
+        </div>
+
+        <div class="field">
+          <label for="payment-method">Method</label>
+          <select id="payment-method" v-model="payForm.method">
+            <option v-for="method in PAYMENT_METHODS" :key="method" :value="method">
+              {{ method }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" @click="showPay = false">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy || payForm.amount === ''">
+            {{ busy ? 'Saving...' : 'Record payment' }}
+          </button>
+        </div>
+      </form>
+    </BaseModal>
   </template>
 </template>
